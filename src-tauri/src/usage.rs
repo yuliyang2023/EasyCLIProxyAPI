@@ -5684,6 +5684,7 @@ mod tests {
     #[test]
     fn normalizes_queue_records_without_persisting_secrets_or_headers() {
         let config = GuiConfigFile {
+            codex_bridge: crate::codex_bridge::BridgeConfig::default(),
             locale: "zh-CN".to_string(),
             port: 8317,
             allow_lan: false,
