@@ -1,0 +1,18 @@
+@layer components {
+  .codex-bridge-panel { padding: 24px; display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+  .codex-bridge-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; }
+  .codex-bridge-heading > div { flex: 1; min-width: 200px; }
+  .codex-bridge-heading h2, .codex-bridge-heading p { margin: 0; }
+  .codex-bridge-heading p { margin-top: 8px; color: var(--text-secondary); }
+  .codex-bridge-switches, .codex-bridge-actions { display: flex; flex-wrap: wrap; gap: 14px; }
+  .codex-bridge-fields { display: grid; grid-template-columns: minmax(130px, 1fr) minmax(0, 2fr); gap: 18px; }
+  .codex-bridge-fields label { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .codex-bridge-fields input { min-width: 0; width: 100%; }
+  .codex-bridge-wide { grid-column: 1 / -1; }
+  .codex-bridge-key-controls { display: flex; gap: 8px; align-items: center; }
+  .codex-bridge-key-controls input { flex: 1; }
+  .codex-bridge-key-controls button { flex-shrink: 0; }
+  .codex-bridge-hint, .codex-bridge-fields small { color: var(--text-secondary); font-size: 12px; margin: 0; line-height: 1.6; }
+  .codex-bridge-error { color: var(--danger-color, #bf2538); overflow-wrap: anywhere; }
+  @media (max-width: 800px) { .codex-bridge-fields { grid-template-columns: minmax(0, 1fr); } .codex-bridge-key-controls { flex-wrap: wrap; } }
+}

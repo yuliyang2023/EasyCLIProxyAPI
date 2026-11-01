@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { AppServer, BridgeError } from './app-server.mjs';
 import { normalizeTools, acceptToolCall, ToolSessions } from './tool-sessions.mjs';
+import { trackUsage, updateUsage } from './usage.mjs';
 
 const invalid = message => new BridgeError(message, 400, 'invalid_request_error');
 const own = (o, key) => Object.hasOwn(o, key);
@@ -119,8 +120,9 @@ export function normalizeRequest(body, responses = false) {
 }
 
 function json(res, status, value) {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
-  res.end(JSON.stringify(value));
+  const body = JSON.stringify(value);
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body) });
+  res.end(body);
 }
 
 function errorBody(error) {
@@ -325,7 +327,10 @@ async function generate(session, request, output, signal) {
       }
       items.set(params.item.id, { text: full, phase: params.item.phase ?? item.phase });
     }
-    if (method === 'thread/tokenUsage/updated') usage = usageOf(params.tokenUsage?.total);
+    if (method === 'thread/tokenUsage/updated') {
+      usage = usageOf(params.tokenUsage?.total);
+      session.cumulativeUsage = usage;
+    }
     if (method === 'error' && params.willRetry !== true) fail(new BridgeError('Codex generation failed. Check Codex authentication and model availability.'));
     if (method === 'turn/completed') {
       if (params.turn?.status !== 'completed') { fail(new BridgeError(`Codex turn ${params.turn?.status ?? 'failed'}.`)); return; }
@@ -348,6 +353,7 @@ async function generate(session, request, output, signal) {
       threadId = result.thread?.id;
       if (!threadId) throw new BridgeError('Codex did not return a thread ID.');
       session.threadId = threadId;
+      session.resolvedModel = result.model ?? request.model;
       if (request.history.length) await rpc.request('thread/inject_items', { threadId, items: request.history });
       const started = await rpc.request('turn/start', { threadId, input: [{ type: 'text', text: request.prompt }],
       ...(request.effort ? { effort: request.effort } : {}), ...(request.outputSchema ? { outputSchema: request.outputSchema } : {}) });
@@ -387,7 +393,7 @@ export function createBridge(options = {}) {
     let url;
     try { url = new URL(req.url, 'http://localhost'); }
     catch { json(res, 400, errorBody(invalid('Invalid request URL.'))); return; }
-    if (url.pathname === '/healthz' && req.method === 'GET') { json(res, 200, { status: 'ok', active, pending_tools: toolSessions.sessions.size }); return; }
+    if (url.pathname === '/healthz' && req.method === 'GET') { json(res, 200, { status: 'ok', active, pending_tools: toolSessions.sessions.size, instance_id: config.instanceId ?? null }); return; }
     if (config.apiKey) {
       const provided = Buffer.from(req.headers.authorization ?? '');
       const expected = Buffer.from(`Bearer ${config.apiKey}`);
@@ -400,6 +406,7 @@ export function createBridge(options = {}) {
     if (!models && !(req.method === 'POST' && (responses || url.pathname === '/v1/chat/completions'))) {
       json(res, 404, errorBody(new BridgeError('Endpoint not found.', 404, 'not_found'))); return;
     }
+    const usageEvent = models ? {} : trackUsage(req, res, config);
     if (active >= config.maxConcurrent) {
       res.setHeader('Retry-After', '1');
       json(res, 429, errorBody(new BridgeError('Bridge concurrency limit reached.', 429, 'rate_limit_exceeded'))); return;
@@ -423,6 +430,7 @@ export function createBridge(options = {}) {
     controller.signal.addEventListener('abort', abort, { once: true });
     try {
       const request = models ? null : normalizeRequest(await readBody(req, config.bodyLimit, controller.signal), responses);
+      if (request) Object.assign(usageEvent, { model: request.model, alias: request.model, reasoning_effort: request.effort ?? '' });
       if (request?.ignoredParameters.length) res.setHeader('X-Codex-Bridge-Ignored-Parameters', request.ignoredParameters.join(', '));
       controller.signal.throwIfAborted();
       if (request) session = toolSessions.take(request);
@@ -450,6 +458,8 @@ export function createBridge(options = {}) {
       } else {
         output = new Output(res, request, responses);
         const result = await generate(session, request, output, controller.signal);
+        usageEvent.model = session.resolvedModel ?? request.model;
+        updateUsage(usageEvent, result.usage);
         if (result.calls.length) {
           toolSessions.retain(session);
           retained = true;
@@ -459,6 +469,8 @@ export function createBridge(options = {}) {
     } catch (error) {
       if (retained) { retained = false; toolSessions.detach(session); }
       const safe = error instanceof BridgeError ? error : new BridgeError('Bridge request failed.', 500, 'internal_error');
+      Object.assign(usageEvent, { failed: true, failure_status: safe.status, failure_body: safe.code });
+      if (session) updateUsage(usageEvent, segmentUsage(session.cumulativeUsage, session.reportedUsage));
       if (output) output.fail(safe);
       else if (!res.destroyed && !res.writableEnded) json(res, safe.status, errorBody(safe));
     } finally {
@@ -497,6 +509,9 @@ export function configFromEnv(env = process.env) {
     timeoutMs: integer('CODEX_BRIDGE_TIMEOUT_MS', 120000, 100, 3600000),
     maxConcurrent: integer('CODEX_BRIDGE_MAX_CONCURRENT', 4, 1, 64),
     toolTimeoutMs: integer('CODEX_BRIDGE_TOOL_TIMEOUT_MS', 600000, 100, 3600000),
+    usageDir: env.CODEX_BRIDGE_USAGE_DIR || undefined,
+    cpaMarker: env.CODEX_BRIDGE_CPA_MARKER || '',
+    instanceId: env.CODEX_BRIDGE_INSTANCE_ID || undefined,
     env: { ...env, ...(env.CODEX_BRIDGE_CODEX_HOME ? { CODEX_HOME: resolve(env.CODEX_BRIDGE_CODEX_HOME) } : {}) } };
 }
 
@@ -507,10 +522,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     bridge.server.on('error', error => { console.error(`Codex bridge listener failed (${error.code ?? 'unknown'}).`); process.exitCode = 1; });
     bridge.server.listen(config.port, config.host, () => console.log(`Codex bridge listening at http://${config.host}:${config.port}/v1`));
     let stopping = false;
-    for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => {
+    const shutdown = async () => {
       if (stopping) return;
       stopping = true;
       await bridge.close();
-    });
+      if (process.env.CODEX_BRIDGE_PARENT_GUARD === '1') process.stdin.destroy();
+    };
+    for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, shutdown);
+    if (process.env.CODEX_BRIDGE_PARENT_GUARD === '1') {
+      // Closing the desktop (including a crash) closes this pipe and shuts down
+      // Codex descendants, even when no graceful app exit callback ran.
+      process.stdin.resume();
+      process.stdin.on('end', shutdown);
+    }
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

@@ -1,4 +1,5 @@
 import { Switch } from './components/Switch';
+import { CodexBridgePanel } from './components/CodexBridgePanel';
 import { onWindowsCloseRequested } from './services/events';
 import {
   openExternalUrl,
@@ -87,6 +88,7 @@ const pages = [
     icon: Network,
     component: ApiAccessPage,
   },
+  { id: 'codex-bridge', labelKey: 'bridge.title', icon: Bot, component: CodexBridgePage },
   {
     id: 'oauth',
     labelKey: 'app.nav.oauth',
@@ -142,6 +144,10 @@ type WindowsClosePrompt = {
 
 function HomePage() {
   return <KernelPage view="home" />;
+}
+
+function CodexBridgePage() {
+  return <section className="page management-page"><CodexBridgePanel /></section>;
 }
 
 function VersionManagementPageWrapper() {

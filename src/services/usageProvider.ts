@@ -3,7 +3,7 @@ export function usageProviderDetails(provider: string, authType = '') {
   const rawProvider = provider.trim();
   const rawAuthType = authType.trim();
   const labels: Record<string, string> = {
-    codex: 'Codex', claude: 'Claude', gemini: 'Gemini', aistudio: 'AI Studio',
+    codex: 'Codex', 'codex-bridge': 'Codex Bridge', claude: 'Claude', gemini: 'Gemini', aistudio: 'AI Studio',
     antigravity: 'Antigravity', openai: 'OpenAI', 'openai-compatibility': 'OpenAI Compatible',
     vertex: 'Vertex AI', 'vertex-ai': 'Vertex AI', xai: 'xAI', grok: 'Grok',
   };

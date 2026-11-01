@@ -6,6 +6,7 @@ mod app_update;
 mod claude_catalog;
 mod codex_catalog;
 mod codex_sessions;
+mod codex_bridge;
 mod configuration_watcher;
 mod core_config;
 mod core_runtime;
@@ -614,6 +615,7 @@ struct CoreInstallTask {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 struct GuiConfigFile {
+    codex_bridge: codex_bridge::BridgeConfig,
     locale: String,
     port: u16,
     allow_lan: bool,
@@ -926,6 +928,7 @@ where
 impl Default for GuiConfigFile {
     fn default() -> Self {
         Self {
+            codex_bridge: codex_bridge::BridgeConfig::default(),
             locale: "en".to_string(),
             port: 8317,
             allow_lan: false,
@@ -2571,6 +2574,7 @@ fn main() {
         .manage(window_activity::WindowActivity::default())
         .manage(CoreProcessState::new(gui_config.start_core_on_launch))
         .manage(DeepSeekHarnessProcessState::default())
+        .manage(codex_bridge::BridgeState::default())
         .manage(usage::UsageCollectorState::default())
         .manage(GuiConfigState::new(gui_config))
         .manage(plugin_webview::PluginWebviewState::default())
@@ -2704,6 +2708,7 @@ fn main() {
             network_proxy::start_monitor(app.handle().clone());
             core_recovery::start(app.handle().clone());
             start_codex_model_catalog_sync(app.handle().clone());
+            codex_bridge::initialize(app.handle().clone());
 
             let usage_app = app.handle().clone();
             tauri::async_runtime::spawn_blocking(move || {
@@ -2796,6 +2801,9 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            codex_bridge::get_codex_bridge,
+            codex_bridge::save_codex_bridge,
+            codex_bridge::control_codex_bridge,
             window_activity::main_window_active,
             desktop_theme::get_linux_system_theme,
             desktop_theme::list_custom_themes,
@@ -2982,6 +2990,7 @@ fn main() {
             app_handle.state::<CoreDownloadState>().cancel();
             let app_handle = app_handle.clone();
             tauri::async_runtime::spawn_blocking(move || {
+                codex_bridge::shutdown(&app_handle);
                 let _guard = CORE_OPERATION_LOCK
                     .lock()
                     .unwrap_or_else(|error| error.into_inner());
@@ -2995,6 +3004,7 @@ fn main() {
             });
         }
         tauri::RunEvent::Exit => {
+            codex_bridge::shutdown(app_handle);
             usage::stop_usage_collector(app_handle);
             let deepseek_process_state = app_handle.state::<DeepSeekHarnessProcessState>();
             if let Err(error) = stop_managed_deepseek_harness(deepseek_process_state.inner()) {

@@ -2221,7 +2221,7 @@ pub(crate) fn write_gui_config_to_path(
     config: &GuiConfigFile,
     config_path: &Path,
 ) -> Result<(), String> {
-    use toml_edit::{value, Array, Document, InlineTable, Item, Value};
+    use toml_edit::{value, Array, Document, InlineTable, Item, Table, Value};
 
     validate_gui_config(config)?;
     let existing = fs::read_to_string(config_path).ok();
@@ -2231,6 +2231,20 @@ pub(crate) fn write_gui_config_to_path(
         .and_then(|content| content.parse::<Document>().ok())
         .unwrap_or_default();
     let root = document.as_table_mut();
+    if !root.get("codex-bridge").is_some_and(Item::is_table) {
+        root.insert("codex-bridge", Item::Table(Table::new()));
+    }
+    let bridge = root.get_mut("codex-bridge").and_then(Item::as_table_mut).ok_or("Invalid Codex bridge configuration")?;
+    for (key, item) in [
+        ("enabled", value(config.codex_bridge.enabled)),
+        ("startOnLaunch", value(config.codex_bridge.start_on_launch)),
+        ("port", value(i64::from(config.codex_bridge.port))),
+        ("apiKey", value(config.codex_bridge.api_key.as_str())),
+        ("nodePath", value(config.codex_bridge.node_path.as_str())),
+        ("codexPath", value(config.codex_bridge.codex_path.as_str())),
+        ("codexHome", value(config.codex_bridge.codex_home.as_str())),
+        ("cpaMarker", value(config.codex_bridge.cpa_marker.as_str())),
+    ] { set_codex_table_item(bridge, key, item); }
     if config.usage_statistics_disabled == Some(true) {
         set_codex_table_item(root, "usage_statistics_disabled", value(true));
     } else {

@@ -3,8 +3,10 @@ import { easyModeEn } from '../easyMode';
 import { homeEn } from '../home';
 import { authFileListEn } from '../authFileList';
 import { themeDiyEn } from '../themeDiy';
+import { bridgeEn } from '../codexBridge';
 
 export const en: Record<MessageKey, string> = {
+  ...bridgeEn,
   ...themeDiyEn,
   'app.window.minimize': 'Minimize',
   'app.window.maximize': 'Maximize',

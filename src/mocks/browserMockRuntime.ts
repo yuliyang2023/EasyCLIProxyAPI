@@ -978,6 +978,10 @@ export function createBrowserMockRuntime(
   const state = createState(scenario);
   let usageViewPreferences: Record<string, string> = {};
   let privacyMode: boolean | null = null;
+  let bridgeRunning = false;
+  let bridgeConfig = { enabled: false, startOnLaunch: false, port: 8320, apiKey: '', nodePath: '', codexPath: '', codexHome: '', cpaMarker: 'browser-mock-route' };
+  const bridgeStatus = () => ({ config: clone(bridgeConfig), running: bridgeRunning, pid: bridgeRunning ? 48320 : null,
+    nodeAvailable: true, codexAvailable: true, lastError: null, baseUrl: `http://127.0.0.1:${bridgeConfig.port}/v1` });
   let themeSelection: ThemeSelection | null = null;
   if (scenario === 'empty') {
     state.usageEvents = [];
@@ -1046,6 +1050,18 @@ export function createBrowserMockRuntime(
       case 'launch_agent': return null;
 
       case 'get_core_status': return clone(state.coreStatus);
+      case 'get_codex_bridge': return bridgeStatus();
+      case 'save_codex_bridge': {
+        const next = asObject(payload.config);
+        if (next.enabled && !String(next.apiKey ?? '').trim()) throw new Error('Bridge API key is required');
+        bridgeConfig = { ...bridgeConfig, ...next };
+        bridgeRunning = bridgeConfig.enabled;
+        return bridgeStatus();
+      }
+      case 'control_codex_bridge': {
+        bridgeRunning = payload.action !== 'stop' && bridgeConfig.enabled;
+        return bridgeStatus();
+      }
       case 'main_window_active': return !document.hidden;
       case 'start_core_process': {
         if (!state.coreStatus.installed) throw new Error('Browser Mock: install the core first');

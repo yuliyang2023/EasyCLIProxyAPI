@@ -199,7 +199,10 @@ jobs:
           GITCODE_CORE_REPOSITORY: ${{ vars.GITCODE_CORE_REPOSITORY }}
         run: |
           bun install --frozen-lockfile
+          node --test scripts/codex-bridge/server.test.mjs
+          bun test tests/codex-bridge-desktop.test.ts
           bun tauri build --no-bundle
+          cargo test --release --manifest-path src-tauri/Cargo.toml bridge -- --test-threads=1
         shell: bash
       - name: Prepare portable directory
         run: >-

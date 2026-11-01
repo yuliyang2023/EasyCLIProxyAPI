@@ -3,6 +3,11 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import http from 'node:http';
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { createBridge, normalizeRequest, configFromEnv } from './server.mjs';
 
 const fixture = fileURLToPath(new URL('./fixture.mjs', import.meta.url));
@@ -374,4 +379,97 @@ test('late parallel tool requests are queued and handed off on the next callback
   history = callback(history, second.choices[0].message, ['late']);
   const final = await (await request(origin, { messages: history, tools: functionTools })).json();
   assert.equal(final.choices[0].message.content, 'received: early | late');
+});
+
+async function inbox(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'bridge-usage-test-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  return directory;
+}
+async function usageRecords(directory) {
+  return Promise.all((await readdir(directory)).filter(name => name.endsWith('.json')).map(async name => JSON.parse(await readFile(join(directory, name), 'utf8'))));
+}
+
+test('desktop usage inbox persists metadata and key hash without prompts or secrets', async t => {
+  const usageDir = await inbox(t);
+  const apiKey = 'private-api-key-fixture';
+  const { origin } = await start(t, { usageDir, apiKey });
+  const res = await request(origin, { model: 'model-a', messages: messages('private-prompt-fixture') }, undefined, { Authorization: `Bearer ${apiKey}` });
+  assert.equal(res.status, 200);
+  await res.text();
+  const records = await usageRecords(usageDir);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].provider, 'codex-bridge');
+  assert.equal(records[0].model, 'model-a');
+  assert.equal(records[0].api_key_hash, createHash('sha256').update(apiKey).digest('hex'));
+  assert.equal(records[0].tokens.total_tokens, 25);
+  assert.equal(records[0].failed, false);
+  assert.ok(records[0].latency_ms > 0);
+  assert.doesNotMatch(JSON.stringify(records), /private-api-key-fixture|private-prompt-fixture|messages|authorization/);
+});
+
+test('SSE usage is collected even when caller does not request a usage tail frame', async t => {
+  const usageDir = await inbox(t);
+  const { origin } = await start(t, { usageDir });
+  const res = await request(origin, { messages: messages('stream'), stream: true });
+  await res.text();
+  assert.equal((await usageRecords(usageDir))[0].tokens.total_tokens, 25);
+});
+
+test('CPA route marker avoids double counting while untrusted marker still records', async t => {
+  const usageDir = await inbox(t);
+  const { origin } = await start(t, { usageDir, cpaMarker: 'desktop-private-marker' });
+  const viaCpa = await request(origin, { messages: messages('CPA') }, undefined, { 'X-EasyCLI-Bridge-Route': 'desktop-private-marker' });
+  await viaCpa.text();
+  assert.equal((await usageRecords(usageDir)).length, 0);
+  const direct = await request(origin, { messages: messages('direct') }, undefined, { 'X-EasyCLI-Bridge-Route': 'forged-marker' });
+  await direct.text();
+  assert.equal((await usageRecords(usageDir)).length, 1);
+});
+
+test('failed requests and tool continuations produce distinct records with incremental tokens', async t => {
+  const usageDir = await inbox(t);
+  const { origin } = await start(t, { usageDir });
+  const failure = await request(origin, { messages: messages('failure') });
+  assert.equal(failure.status, 502);
+  await failure.text();
+  const initial = messages('dynamic-call');
+  const first = await (await request(origin, { messages: initial, tools: functionTools })).json();
+  const final = await request(origin, { messages: callback(initial, first.choices[0].message, ['tool-result']), tools: functionTools });
+  await final.text();
+  const records = await usageRecords(usageDir);
+  assert.equal(records.length, 3);
+  assert.equal(new Set(records.map(record => record.request_id)).size, 3);
+  assert.equal(records.filter(record => record.failed).length, 1);
+  assert.equal(records.reduce((sum, record) => sum + record.tokens.total_tokens, 0), 35);
+  assert.doesNotMatch(JSON.stringify(records), /tool-result/);
+});
+
+test('desktop parent pipe controls lifetime and health has an instance identity', async t => {
+  const reservation = http.createServer();
+  reservation.listen(0, '127.0.0.1');
+  await once(reservation, 'listening');
+  const port = reservation.address().port;
+  await new Promise(resolve => reservation.close(resolve));
+  const child = spawn(process.execPath, [fileURLToPath(new URL('./server.mjs', import.meta.url))], {
+    env: { ...process.env, CODEX_BRIDGE_PORT: String(port), CODEX_BRIDGE_HOST: '127.0.0.1',
+      CODEX_BRIDGE_PARENT_GUARD: '1', CODEX_BRIDGE_INSTANCE_ID: 'desktop-owned-fixture' },
+    stdio: ['pipe', 'ignore', 'ignore'],
+  });
+  t.after(() => { if (child.exitCode === null) child.kill(); });
+  let response;
+  for (let i = 0; i < 100; i++) {
+    try { response = await fetch(`http://127.0.0.1:${port}/healthz`); break; }
+    catch { await new Promise(resolve => setTimeout(resolve, 20)); }
+  }
+  assert.ok(response);
+  const body = await response.text();
+  assert.equal(JSON.parse(body).instance_id, 'desktop-owned-fixture');
+  assert.equal(Number(response.headers.get('content-length')), Buffer.byteLength(body));
+  const exit = once(child, 'exit');
+  child.stdin.end();
+  let timer;
+  const code = await Promise.race([exit, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Desktop child did not shut down on parent EOF')), 3000); })]);
+  clearTimeout(timer);
+  assert.equal(code[0], 0);
 });

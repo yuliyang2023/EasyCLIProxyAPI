@@ -2,8 +2,10 @@ import { easyModeZhCN } from '../easyMode';
 import { homeZhCN } from '../home';
 import { authFileListZhCN } from '../authFileList';
 import { themeDiyZhCN } from '../themeDiy';
+import { bridgeZhCN } from '../codexBridge';
 
 export const zhCN = {
+  ...bridgeZhCN,
   ...themeDiyZhCN,
   'app.window.minimize': '最小化',
   'app.window.maximize': '最大化',

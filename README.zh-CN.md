@@ -26,7 +26,9 @@ EasyCLIProxyAPI 是基于 [CLIProxyAPI](https://github.com/router-for-me/CLIProx
 
 ### Codex App Server HTTP 桥接
 
-仓库提供独立的 OpenAI 兼容文本 API 桥接服务，通过本机 `codex app-server` 使用 Codex。运行 `npm run codex:bridge`，然后将 `http://127.0.0.1:8320/v1` 添加为 OpenAI 兼容 Provider。支持 Chat Completions 和文本版 Responses 的普通与流式回复。配置、兼容范围和测试见 [桥接服务说明](scripts/codex-bridge/README.md)。
+桌面侧边栏“Codex 桥接”和“API 接入”页面提供配置、API Key 管理、启停与“随应用启动”选项，默认关闭。运行脚本已内嵌到桌面程序，使用本机 Node.js 22+ 和已登录的 Codex CLI；“接入 CPA”可创建对应的 OpenAI 兼容 Provider。直连请求的模型、token、耗时和结果会进入“使用记录”，经 CPA 转发的请求沿用 CPA 记录避免重复统计。
+
+也可以在源码中运行 `npm run codex:bridge` 独立启动，地址为 `http://127.0.0.1:8320/v1`。支持 Chat Completions、工具调用和文本版 Responses。配置、兼容范围和测试见 [桥接服务说明](scripts/codex-bridge/README.md)。
 
 ## 功能导览
 

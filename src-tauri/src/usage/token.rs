@@ -88,6 +88,7 @@ fn resolve_handler(executor_type: &str, provider: &str, auth_type: &str) -> (Tok
         | "aistudioexecutor"
         | "antigravityexecutor" => Some(TokenHandler::Gemini),
         "codexexecutor"
+        | "codexbridgeresponsesexecutor"
         | "codexwebsocketsexecutor"
         | "codexautoexecutor"
         | "xaiexecutor"

@@ -3,8 +3,10 @@ import { easyModeJa } from './easyMode';
 import { homeJa } from './home';
 import { authFileListJa } from './authFileList';
 import { themeDiyJa } from './themeDiy';
+import { bridgeJa } from './codexBridge';
 
 export const jaOverrides = {
+  ...bridgeJa,
   ...themeDiyJa,
   'app.window.minimize': '最小化',
   'app.window.maximize': '最大化',

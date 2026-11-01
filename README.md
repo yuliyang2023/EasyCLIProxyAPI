@@ -27,7 +27,9 @@ archive, making first-time setup and offline installation easier.
 
 ### Codex App Server HTTP bridge
 
-Run `npm run codex:bridge` to expose local Codex through an OpenAI-compatible text API at `http://127.0.0.1:8320/v1`. Add it as an OpenAI-compatible provider to route requests through CPA. Supports non-streaming and streaming Chat Completions and text Responses. See [bridge setup, compatibility limits, and tests](scripts/codex-bridge/README.md).
+Use **Codex Bridge** in the desktop sidebar or API Access page to configure its API key, start/stop it, opt into app-launch startup, and connect it to CPA. The runtime scripts are embedded in the desktop binary; Node.js 22+ and a signed-in local Codex CLI are required. Direct bridge requests appear in Usage Records with model/token counts, latency and outcomes; CPA-routed requests use CPA records without double counting. The bridge is disabled by default.
+
+For standalone use, run `npm run codex:bridge` at `http://127.0.0.1:8320/v1`. Supports streaming/non-streaming Chat Completions, caller tools, and text Responses. See [bridge setup, compatibility limits, and tests](scripts/codex-bridge/README.md).
 
 ## Feature Tour
 

@@ -1,5 +1,6 @@
 import { EmptyState } from '../components/EmptyState';
 import { Switch } from '../components/Switch';
+import { CodexBridgePanel } from '../components/CodexBridgePanel';
 import { resolveApiAccessRemarks, saveApiAccessRemark } from '../services/apiAccessRemarks';
 import type { ProviderSection, ApiAccessRemarkLocator } from '../services/apiAccessRemarks';
 import { useConfirmation } from '../components/ConfirmationDialog';
@@ -1587,6 +1588,7 @@ export function ApiAccessPage() {
   return (
     <section className="page management-page api-access-page">
       {confirmationDialog}
+      <CodexBridgePanel />
       {error ? <MessageNotice message={error} onDismiss={() => setError('')} /> : null}
       <div className="provider-workbench real-provider-workbench">
         <aside className="panel provider-category-panel">

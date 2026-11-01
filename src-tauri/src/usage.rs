@@ -2170,7 +2170,7 @@ pub(crate) fn persist_local_usage_event(
     let config = app.state::<GuiConfigState>().snapshot()?;
     let root = usage_root_dir()?;
     let outcome = persist_queue_items_from_source(&root, collector_source, vec![value], &config)?;
-    publish_collected_records(app, outcome, "Saved desktop health check usage record");
+    publish_collected_records(app, outcome, if collector_source == "codex_bridge" { "Saved Codex bridge usage record" } else { "Saved desktop health check usage record" });
     Ok(outcome.inserted)
 }
 
@@ -2701,13 +2701,25 @@ fn normalize_usage_record(value: Value, config: &GuiConfigFile) -> Result<UsageR
     let request_id = string_field(object, "request_id")
         .ok_or_else(|| "CPA usage record must contain request_id".to_string())?;
     let api_key = string_field(object, "api_key").unwrap_or_default();
-    let api_key_hash = hash_text(&api_key);
-    let api_key_remark = config
+    let api_key_hash = if api_key.is_empty() {
+        string_field(object, "api_key_hash")
+            .filter(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+            .unwrap_or_default()
+    } else { hash_text(&api_key) };
+    let api_key_display = if api_key.is_empty() {
+        string_field(object, "api_key_display")
+            .filter(|display| display.starts_with("***") && display.len() <= 32)
+            .unwrap_or_default()
+    } else { mask_api_key(&api_key) };
+    let mut api_key_remark = config
         .api_keys
         .iter()
         .find(|entry| entry.key == api_key)
         .map(|entry| entry.remark.clone())
         .unwrap_or_default();
+    if !config.codex_bridge.api_key.is_empty() && hash_text(&config.codex_bridge.api_key) == api_key_hash {
+        api_key_remark = "Codex bridge".to_string();
+    }
     let provider = string_field(object, "provider").unwrap_or_default();
     let executor_type = string_field(object, "executor_type").unwrap_or_default();
     let auth_type = string_field(object, "auth_type").unwrap_or_default();
@@ -2819,7 +2831,7 @@ fn normalize_usage_record(value: Value, config: &GuiConfigFile) -> Result<UsageR
         endpoint,
         auth_type,
         api_key_hash,
-        api_key_display: mask_api_key(&api_key),
+        api_key_display,
         api_key_remark,
         request_id,
         generate,
@@ -4792,6 +4804,31 @@ fn usage_source_display(config: &GuiConfigFile, provider: &str, source: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bridge_usage_is_persisted_once_without_plaintext_keys() {
+        let root = test_root("bridge-usage");
+        let connection = open_test_database(&root);
+        let mut config = GuiConfigFile::default();
+        config.codex_bridge.api_key = "bridge-private-fixture-key".into();
+        let event = serde_json::json!({
+            "request_id": "codex-bridge-fixture-request", "provider": "codex-bridge", "auth_type": "apikey",
+            "timestamp": "2026-11-01T10:00:00Z", "source": "Codex App Server bridge", "model": "fixture-model",
+            "executor_type": "CodexBridgeResponsesExecutor", "api_key_hash": hash_text(&config.codex_bridge.api_key),
+            "api_key_display": "***-key", "tokens": { "input_tokens": 20, "output_tokens": 5, "total_tokens": 25 },
+        });
+        assert_eq!(persist_queue_items_from_source(&root, "codex_bridge", vec![event.clone()], &config).unwrap().inserted, 1);
+        assert_eq!(persist_queue_items_from_source(&root, "codex_bridge", vec![event], &config).unwrap().inserted, 0);
+        let page = load_usage_events(&connection, &UsageQuery::default(), &config).unwrap();
+        assert_eq!(page.total, 1);
+        assert_eq!(page.items[0].provider, "codex-bridge");
+        assert_eq!(page.items[0].model, "fixture-model");
+        assert_eq!(page.items[0].tokens.total_tokens, 25);
+        assert_eq!(page.items[0].api_key_hash, hash_text(&config.codex_bridge.api_key));
+        assert!(!serde_json::to_string(&page.items[0]).unwrap().contains(&config.codex_bridge.api_key));
+        drop(connection);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     fn load_usage_events(
         connection: &Connection,
