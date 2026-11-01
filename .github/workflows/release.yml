@@ -18,6 +18,14 @@ on:
     types: [opened, synchronize, reopened, ready_for_review, edited]
   workflow_dispatch:
     inputs:
+      build_target:
+        description: Platforms to build (single-platform runs produce artifacts only)
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - macos-intel
       release_tag:
         description: Optional tag to create after all builds pass (leave empty to build artifacts only)
         required: false
@@ -49,6 +57,7 @@ jobs:
     outputs:
       version: ${{ steps.resolve.outputs.version }}
       tag: ${{ steps.resolve.outputs.tag }}
+      matrix: ${{ steps.resolve.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -61,8 +70,15 @@ jobs:
           REQUESTED_VERSION: ${{ (github.ref_type == 'tag' && github.ref_name) || inputs.release_tag }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           MIAOMIAO_PREVIEW: ${{ inputs.preview }}
+          BUILD_TARGET: ${{ inputs.build_target || 'all' }}
         run: |
           set -euo pipefail
+
+          if [[ "$BUILD_TARGET" != "all" && -n "$REQUESTED_VERSION" ]]; then
+            echo "Single-platform builds produce artifacts only; leave release_tag empty." >&2
+            exit 1
+          fi
+          echo "matrix=$(node scripts/build-matrix.mjs "$BUILD_TARGET")" >> "$GITHUB_OUTPUT"
 
           source_version="$(node scripts/version.mjs)"
           release_tag="$REQUESTED_VERSION"
@@ -94,38 +110,7 @@ jobs:
       contents: read
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-22.04
-            os: linux
-            display_os: Linux
-            arch: amd64
-            suffix: tar.gz
-          - runner: ubuntu-22.04-arm
-            os: linux
-            display_os: Linux
-            arch: aarch64
-            suffix: tar.gz
-          - runner: macos-15-intel
-            os: darwin
-            display_os: Darwin
-            arch: amd64
-            suffix: dmg
-          - runner: macos-15
-            os: darwin
-            display_os: Darwin
-            arch: aarch64
-            suffix: dmg
-          - runner: windows-2025
-            os: windows
-            display_os: Windows
-            arch: amd64
-            suffix: zip
-          - runner: windows-11-arm
-            os: windows
-            display_os: Windows
-            arch: aarch64
-            suffix: zip
+      matrix: ${{ fromJSON(needs.version.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     env:
