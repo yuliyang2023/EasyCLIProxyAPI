@@ -170,6 +170,8 @@ If you are running v0.2.5 or earlier, perform one manual migration: exit EasyCLI
 
 ## Supported Platforms
 
+Forks without Apple signing and notarization secrets can build a macOS Intel test DMG with `gh workflow run release.yml --ref main -f build_target=macos-intel -f macos_signing=adhoc`. Download it from the run's Artifacts. These test packages use ad-hoc signing without Apple notarization and may be blocked on first launch. Official releases retain the default `macos_signing=signed` and require the Apple signing secrets.
+
 GitHub Actions builds the following release packages:
 
 | Operating System | Architecture | Package |

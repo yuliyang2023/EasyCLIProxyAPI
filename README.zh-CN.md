@@ -164,6 +164,14 @@ Codex 的 **会话管理 → 编辑上下文（实验性）** 仅在点击某个
 
 ## 支持的平台
 
+Fork 仓库若没有配置 Apple 签名和公证 Secrets，可手动生成仅供测试的 macOS Intel DMG：
+
+```sh
+gh workflow run release.yml --ref main -f build_target=macos-intel -f macos_signing=adhoc
+```
+
+产物在 Actions 的 Artifacts 下载。此模式使用临时签名、不经过 Apple 公证，首次打开可能被 macOS 拦截；正式发布仍使用默认的 `macos_signing=signed`，并要求配置 Apple 签名和公证 Secrets。
+
 GitHub Actions 会构建以下发行包：
 
 | 操作系统 | 架构 | 格式 |

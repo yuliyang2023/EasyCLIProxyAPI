@@ -26,6 +26,14 @@ on:
         options:
           - all
           - macos-intel
+      macos_signing:
+        description: macOS signing mode (ad-hoc is for test artifacts only)
+        required: true
+        default: signed
+        type: choice
+        options:
+          - signed
+          - adhoc
       release_tag:
         description: Optional tag to create after all builds pass (leave empty to build artifacts only)
         required: false
@@ -71,11 +79,16 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           MIAOMIAO_PREVIEW: ${{ inputs.preview }}
           BUILD_TARGET: ${{ inputs.build_target || 'all' }}
+          MACOS_SIGNING: ${{ inputs.macos_signing || 'signed' }}
         run: |
           set -euo pipefail
 
           if [[ "$BUILD_TARGET" != "all" && -n "$REQUESTED_VERSION" ]]; then
             echo "Single-platform builds produce artifacts only; leave release_tag empty." >&2
+            exit 1
+          fi
+          if [[ "$MACOS_SIGNING" == "adhoc" && -n "$REQUESTED_VERSION" ]]; then
+            echo "Ad-hoc macOS packages are test artifacts only; leave release_tag empty." >&2
             exit 1
           fi
           echo "matrix=$(node scripts/build-matrix.mjs "$BUILD_TARGET")" >> "$GITHUB_OUTPUT"
@@ -120,6 +133,26 @@ jobs:
         with:
           ref: ${{ inputs.source_sha || github.sha }}
           persist-credentials: false
+      - name: Check macOS signing configuration
+        if: env.PACKAGE_RELEASE == 'true' && matrix.os == 'darwin' && github.event_name != 'pull_request' && inputs.macos_signing != 'adhoc'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_TEAM_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing repository secret: $name. Configure Apple signing or use macos_signing=adhoc for manual test artifacts."
+              missing=1
+            fi
+          done
+          exit "$missing"
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.3.14
@@ -190,7 +223,7 @@ jobs:
           path: cpa-core
           key: ${{ steps.core-cache.outputs.cache-primary-key }}
       - name: Build signed macOS DMG
-        if: env.PACKAGE_RELEASE == 'true' && matrix.os == 'darwin' && github.event_name != 'pull_request'
+        if: env.PACKAGE_RELEASE == 'true' && matrix.os == 'darwin' && github.event_name != 'pull_request' && inputs.macos_signing != 'adhoc'
         shell: bash
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -324,8 +357,8 @@ jobs:
             fi
             echo "::warning::DMG validation failed (exit $validate_status); requesting again immediately (attempt $((attempt + 1))/$max_attempts)."
           done
-      - name: Build macOS PR DMG without Apple notarization
-        if: github.event_name == 'pull_request' && matrix.os == 'darwin'
+      - name: Build ad-hoc macOS DMG without Apple notarization
+        if: env.PACKAGE_RELEASE == 'true' && matrix.os == 'darwin' && (github.event_name == 'pull_request' || inputs.macos_signing == 'adhoc')
         shell: bash
         env:
           APPLE_SIGNING_IDENTITY: '-'
