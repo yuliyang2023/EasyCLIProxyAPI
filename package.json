@@ -17,7 +17,9 @@
     "test:ui:browser-mock": "node tests/browser-mock-ui.cjs",
     "screenshots": "node scripts/capture-readme-screenshots.cjs",
     "theme:schema": "bun scripts/theme-schema.mjs",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "codex:bridge": "node scripts/codex-bridge/server.mjs",
+    "test:codex-bridge": "node --test scripts/codex-bridge/server.test.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -25,6 +25,10 @@ quota inspection, usage records, model aliases, and agent client configuration i
 The application is built with Tauri, React, and Rust. It can carry a matching CLIProxyAPI core
 archive, making first-time setup and offline installation easier.
 
+### Codex App Server HTTP bridge
+
+Run `npm run codex:bridge` to expose local Codex through an OpenAI-compatible text API at `http://127.0.0.1:8320/v1`. Add it as an OpenAI-compatible provider to route requests through CPA. Supports non-streaming and streaming Chat Completions and text Responses. See [bridge setup, compatibility limits, and tests](scripts/codex-bridge/README.md).
+
 ## Feature Tour
 
 ### Home dashboard and local API endpoints

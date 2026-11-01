@@ -24,6 +24,10 @@ EasyCLIProxyAPI 是基于 [CLIProxyAPI](https://github.com/router-for-me/CLIProx
 软件基于 Tauri、React 和 Rust 构建，并可携带匹配版本的 CLIProxyAPI 内核压缩包，
 让首次安装和离线安装更加方便。
 
+### Codex App Server HTTP 桥接
+
+仓库提供独立的 OpenAI 兼容文本 API 桥接服务，通过本机 `codex app-server` 使用 Codex。运行 `npm run codex:bridge`，然后将 `http://127.0.0.1:8320/v1` 添加为 OpenAI 兼容 Provider。支持 Chat Completions 和文本版 Responses 的普通与流式回复。配置、兼容范围和测试见 [桥接服务说明](scripts/codex-bridge/README.md)。
+
 ## 功能导览
 
 ### 首页与本地 API 地址
