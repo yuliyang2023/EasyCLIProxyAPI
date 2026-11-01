@@ -2620,6 +2620,17 @@ fn insert_usage_records_in_transaction(
     let created_at = Local::now().to_rfc3339();
     let mut inserted = 0_usize;
     for record in records {
+        // CPA deliberately permits repeated event keys (for example on long
+        // connections). Desktop bridge inbox files instead identify one HTTP
+        // request with a UUID and may be replayed after a crash. Deduplicate
+        // that source only, inside the same transaction as insertion.
+        if record.collector_source == "codex_bridge" && record.provider == "codex-bridge" {
+            let exists: bool = transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM usage_events WHERE event_key = ?1 AND collector_source = 'codex_bridge' AND provider = 'codex-bridge')",
+                params![record.id], |row| row.get(0),
+            ).map_err(|error| format!("Failed to check bridge usage replay: {error}"))?;
+            if exists { continue; }
+        }
         let api_group_key = if !record.api_group_key.trim().is_empty() {
             record.api_group_key.as_str()
         } else if !record.api_key_hash.trim().is_empty() {
@@ -4826,6 +4837,28 @@ mod tests {
         assert_eq!(page.items[0].tokens.total_tokens, 25);
         assert_eq!(page.items[0].api_key_hash, hash_text(&config.codex_bridge.api_key));
         assert!(!serde_json::to_string(&page.items[0]).unwrap().contains(&config.codex_bridge.api_key));
+        drop(connection);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn bridge_replay_dedup_preserves_new_requests_and_cpa_duplicates() {
+        let root = test_root("bridge-source-specific-dedup");
+        let mut connection = open_test_database(&root);
+        let mut bridge = sample_record("shared-request", "2026-11-01T10:00:00Z", "fixture-model");
+        bridge.provider = "codex-bridge".into();
+        bridge.collector_source = "codex_bridge".into();
+        let mut next = bridge.clone();
+        next.id = "different-bridge-request".into();
+        next.request_id = next.id.clone();
+        let mut cpa = bridge.clone();
+        cpa.provider = "codex".into();
+        cpa.collector_source = HTTP_USAGE_QUEUE_SOURCE.into();
+        assert_eq!(insert_usage_records(&mut connection, &[bridge.clone(), bridge, next, cpa.clone(), cpa]).unwrap(), 4);
+        let counts: (i64, i64) = connection.query_row(
+            "SELECT COUNT(*), SUM(provider = 'codex-bridge') FROM usage_events", [], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).unwrap();
+        assert_eq!(counts, (4, 2));
         drop(connection);
         fs::remove_dir_all(root).unwrap();
     }
